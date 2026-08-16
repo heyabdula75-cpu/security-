@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureChain — AI Supply Chain Security Platform</title>
+  <meta name="description" content="Enterprise-grade SBOM generation, vulnerability scanning, and AI-powered threat detection for your software supply chain." />
+  <meta name="theme-color" content="#0a0f1a" />
+
+  <!-- Preconnect for fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Lucide Icons (CDN) -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <!-- Chart.js for data visualisation -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     AUTH SCREEN
+══════════════════════════════════════════ -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <!-- Brand -->
+    <div class="auth-brand">
+      <div class="auth-brand-icon">🛡️</div>
+      <div>
+        <div class="auth-brand-text">SecureChain</div>
+        <div class="auth-brand-sub">AI Supply Chain Security Platform</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login" onclick="App.auth.showTab('login')">Sign In</button>
+      <button class="auth-tab" id="tab-register" onclick="App.auth.showTab('register')">Register</button>
+    </div>
+
+    <!-- Login Form -->
+    <form id="login-form" onsubmit="App.auth.login(event)">
+      <div class="form-group">
+        <label class="form-label" for="login-email">Email Address</label>
+        <input class="form-input" type="email" id="login-email" placeholder="you@company.com" required autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Password</label>
+        <input class="form-input" type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
+      </div>
+      <p id="login-error" class="text-rose text-sm mb-1" style="display:none;"></p>
+      <button class="btn btn-primary btn-full" type="submit" id="login-btn">
+        <span class="spinner" id="login-spinner" style="display:none;"></span>
+        Sign In
+      </button>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-form" style="display:none;" onsubmit="App.auth.register(event)">
+      <div class="form-group">
+        <label class="form-label" for="reg-name">Full Name</label>
+        <input class="form-input" type="text" id="reg-name" placeholder="Jane Smith" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="reg-email">Email Address</label>
+        <input class="form-input" type="email" id="reg-email" placeholder="you@company.com" required autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="reg-org">Organization Name</label>
+        <input class="form-input" type="text" id="reg-org" placeholder="Acme Corp" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="reg-password">Password</label>
+        <input class="form-input" type="password" id="reg-password" placeholder="••••••••" required minlength="8" autocomplete="new-password" />
+      </div>
+      <p id="reg-error" class="text-rose text-sm mb-1" style="display:none;"></p>
+      <button class="btn btn-primary btn-full" type="submit" id="reg-btn">
+        <span class="spinner" id="reg-spinner" style="display:none;"></span>
+        Create Account
+      </button>
+    </form>
+
+    <p class="text-muted mt-2" style="text-align:center; font-size:0.75rem;">
+      🔒 Secured with JWT · TLS encrypted in production
+    </p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MAIN APPLICATION SHELL
+══════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- ── Sidebar ─────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">🛡️</div>
+      <div>
+        <div class="brand-name">SecureChain</div>
+        <div class="brand-ver">v1.0.0 · Enterprise</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Platform</div>
+      <div class="nav-item active" id="nav-dashboard" onclick="App.router.go('dashboard')">
+        <span class="nav-icon">📊</span> Dashboard
+      </div>
+      <div class="nav-item" id="nav-projects" onclick="App.router.go('projects')">
+        <span class="nav-icon">📁</span> Projects
+      </div>
+
+      <div class="nav-section-label">Security</div>
+      <div class="nav-item" id="nav-sboms" onclick="App.router.go('sboms')">
+        <span class="nav-icon">📦</span> SBOM Management
+      </div>
+      <div class="nav-item" id="nav-vulnerabilities" onclick="App.router.go('vulnerabilities')">
+        <span class="nav-icon">🔍</span> Vulnerabilities
+        <span class="nav-badge" id="vuln-badge">0</span>
+      </div>
+      <div class="nav-item" id="nav-threats" onclick="App.router.go('threats')">
+        <span class="nav-icon">⚠️</span> Threat Detection
+      </div>
+      <div class="nav-item" id="nav-risks" onclick="App.router.go('risks')">
+        <span class="nav-icon">📈</span> Risk Scoring
+      </div>
+
+      <div class="nav-section-label">Governance</div>
+      <div class="nav-item" id="nav-compliance" onclick="App.router.go('compliance')">
+        <span class="nav-icon">✅</span> Compliance
+      </div>
+
+      <div class="nav-section-label">System</div>
+      <div class="nav-item" id="nav-settings" onclick="App.router.go('settings')">
+        <span class="nav-icon">⚙️</span> Settings
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-card" id="user-card">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div>
+          <div class="user-name" id="user-name-display">—</div>
+          <div class="user-email" id="user-email-display">—</div>
+        </div>
+        <button class="user-logout-btn" title="Sign out" onclick="App.auth.logout()">⏻</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main Content ────────────────────────── -->
+  <div class="main-wrap">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div>
+          <div class="topbar-title" id="page-title">Dashboard</div>
+          <div class="topbar-subtitle" id="page-subtitle">AI Supply Chain Security Overview</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="flex items-center gap-1">
+          <div class="status-dot"></div>
+          <span class="text-xs text-muted" id="db-status-text">Connecting…</span>
+        </div>
+        <button class="btn btn-secondary" onclick="App.health.check()" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
+          🔄 Refresh
+        </button>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- ── DASHBOARD VIEW ──────────────────── -->
+      <section class="view active" id="view-dashboard">
+        <!-- Stats Row -->
+        <div class="stats-grid" id="dashboard-stats">
+          <div class="stat-card cyan">
+            <div class="stat-icon">📦</div>
+            <div class="stat-label">Total SBOMs</div>
+            <div class="stat-value" id="stat-sboms">—</div>
+            <div class="stat-delta up" id="stat-sboms-delta">Loading…</div>
+          </div>
+          <div class="stat-card rose">
+            <div class="stat-icon">🚨</div>
+            <div class="stat-label">Critical Vulns</div>
+            <div class="stat-value" id="stat-critical">—</div>
+            <div class="stat-delta" id="stat-critical-delta">Loading…</div>
+          </div>
+          <div class="stat-card amber">
+            <div class="stat-icon">⚠️</div>
+            <div class="stat-label">Active Threats</div>
+            <div class="stat-value" id="stat-threats">—</div>
+            <div class="stat-delta" id="stat-threats-delta">Loading…</div>
+          </div>
+          <div class="stat-card emerald">
+            <div class="stat-icon">✅</div>
+            <div class="stat-label">Compliance Score</div>
+            <div class="stat-value" id="stat-compliance">—</div>
+            <div class="stat-delta up" id="stat-compliance-delta">Loading…</div>
+          </div>
+          <div class="stat-card purple">
+            <div class="stat-icon">📁</div>
+            <div class="stat-label">Projects</div>
+            <div class="stat-value" id="stat-projects">—</div>
+            <div class="stat-delta" id="stat-projects-delta">Loading…</div>
+          </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid-2 mb-3">
+          <!-- Risk Chart -->
+          <div class="card">
+            <div class="section-header">
+              <div class="section-title">
+                <div class="section-icon rose">📈</div>
+                Risk Trend (30 days)
+              </div>
+            </div>
+            <canvas id="risk-chart" height="180"></canvas>
+          </div>
+
+          <!-- Severity Breakdown -->
+          <div class="card">
+            <div class="section-header">
+              <div class="section-title">
+                <div class="section-icon amber">🔍</div>
+                Vulnerability Severity
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:1.5rem;">
+              <canvas id="severity-chart" width="160" height="160"></canvas>
+              <div id="severity-legend" style="flex:1;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="card">
+          <div class="section-header">
+            <div class="section-title">
+              <div class="section-icon cyan">📋</div>
+              Recent Activity
+            </div>
+            <button class="btn btn-secondary" onclick="App.router.go('sboms')" style="font-size:0.8rem; padding:0.4rem 0.75rem;">View All →</button>
+          </div>
+          <div id="recent-activity">
+            <div class="empty-state">
+              <div class="spinner spinner-lg"></div>
+              <div class="empty-title">Loading activity…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── PROJECTS VIEW ───────────────────── -->
+      <section class="view" id="view-projects">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon purple">📁</div>
+            <h2>Projects</h2>
+          </div>
+          <button class="btn btn-primary" onclick="App.projects.showCreate()">+ New Project</button>
+        </div>
+
+        <!-- Create project form (hidden by default) -->
+        <div class="card mb-3" id="create-project-form" style="display:none;">
+          <h3 class="mb-2">Create New Project</h3>
+          <form onsubmit="App.projects.create(event)">
+            <div class="grid-2">
+              <div class="form-group">
+                <label class="form-label">Project Name *</label>
+                <input class="form-input" id="proj-name" placeholder="my-service" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Repository URL</label>
+                <input class="form-input" id="proj-repo" placeholder="https://github.com/org/repo" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Description</label>
+              <input class="form-input" id="proj-desc" placeholder="Brief description of this project…" />
+            </div>
+            <div class="flex gap-1">
+              <button class="btn btn-primary" type="submit">Create Project</button>
+              <button class="btn btn-secondary" type="button" onclick="App.projects.hideCreate()">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div id="projects-list">
+            <div class="empty-state">
+              <div class="spinner spinner-lg"></div>
+              <div class="empty-title">Loading projects…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SBOM VIEW ───────────────────────── -->
+      <section class="view" id="view-sboms">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon cyan">📦</div>
+            <h2>SBOM Management</h2>
+          </div>
+          <button class="btn btn-primary" onclick="App.sboms.showUpload()">+ Generate / Upload SBOM</button>
+        </div>
+
+        <!-- Upload/generate form -->
+        <div class="card mb-3" id="sbom-upload-form" style="display:none;">
+          <h3 class="mb-2">Generate SBOM</h3>
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">SBOM Name *</label>
+              <input class="form-input" id="sbom-name" placeholder="my-app-v1.2.3" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Format</label>
+              <select class="form-input" id="sbom-format">
+                <option value="cyclonedx">CycloneDX JSON</option>
+                <option value="spdx">SPDX JSON</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Source Repository URL</label>
+            <input class="form-input" id="sbom-source" placeholder="https://github.com/org/repo" />
+          </div>
+          <div class="flex gap-1">
+            <button class="btn btn-primary" onclick="App.sboms.generate()">🔄 Generate SBOM</button>
+            <button class="btn btn-secondary" onclick="App.sboms.hideUpload()">Cancel</button>
+          </div>
+          <div id="sbom-terminal-wrap" class="mt-2" style="display:none;">
+            <div class="terminal scan-overlay" id="sbom-terminal"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div id="sboms-list">
+            <div class="empty-state">
+              <div class="spinner spinner-lg"></div>
+              <div class="empty-title">Loading SBOMs…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VULNERABILITIES VIEW ────────────── -->
+      <section class="view" id="view-vulnerabilities">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon rose">🔍</div>
+            <h2>Vulnerabilities</h2>
+          </div>
+          <div class="flex gap-1">
+            <select class="form-input" id="vuln-filter" onchange="App.vulnerabilities.filter(this.value)" style="width:auto; padding:0.4rem 0.75rem; font-size:0.85rem;">
+              <option value="">All Severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="card">
+          <div id="vulns-list">
+            <div class="empty-state">
+              <div class="spinner spinner-lg"></div>
+              <div class="empty-title">Loading vulnerabilities…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── THREATS VIEW ────────────────────── -->
+      <section class="view" id="view-threats">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon amber">⚠️</div>
+            <h2>Threat Detection</h2>
+          </div>
+          <button class="btn btn-primary" onclick="App.threats.runScan()">🔍 Run Threat Scan</button>
+        </div>
+        <div class="grid-2 mb-3">
+          <div class="card">
+            <div class="section-title mb-2"><div class="section-icon rose">🎯</div> Typosquatting</div>
+            <div id="threat-typosquat-count" class="stat-value text-rose">—</div>
+            <p class="text-muted mt-1">Suspicious package names detected</p>
+          </div>
+          <div class="card">
+            <div class="section-title mb-2"><div class="section-icon amber">📦</div> Dependency Confusion</div>
+            <div id="threat-depconf-count" class="stat-value text-amber">—</div>
+            <p class="text-muted mt-1">Potential namespace attacks</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-header">
+            <div class="section-title"><div class="section-icon amber">📋</div> Active Threat Alerts</div>
+          </div>
+          <div id="threats-list">
+            <div class="empty-state">
+              <div class="spinner spinner-lg"></div>
+              <div class="empty-title">Loading threats…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── RISK VIEW ───────────────────────── -->
+      <section class="view" id="view-risks">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon purple">📈</div>
+            <h2>Risk Scoring</h2>
+          </div>
+        </div>
+        <div class="grid-2 mb-3">
+          <div class="card" style="display:flex; align-items:center; gap:2rem;">
+            <div class="risk-ring-wrap">
+              <div class="risk-ring">
+                <svg viewBox="0 0 120 120" width="120" height="120">
+                  <circle class="risk-ring-track" cx="60" cy="60" r="52"/>
+                  <circle class="risk-ring-fill" id="risk-ring-circle" cx="60" cy="60" r="52"
+                    stroke="url(#riskGrad)"
+                    stroke-dasharray="326.7"
+                    stroke-dashoffset="326.7"/>
+                  <defs>
+                    <linearGradient id="riskGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="hsl(262,83%,68%)"/>
+                      <stop offset="100%" stop-color="hsl(187,100%,50%)"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div class="risk-ring-label">
+                  <div class="risk-ring-score" id="risk-score-display">—</div>
+                  <div class="risk-ring-text">Risk Score</div>
+                </div>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <h3 class="mb-1">Overall Platform Risk</h3>
+              <p class="text-muted text-sm">Aggregate risk across all projects and components.</p>
+              <div class="mt-2" id="risk-breakdown"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="section-title mb-2"><div class="section-icon cyan">📊</div> Risk by Project</div>
+            <div id="risk-by-project"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-title mb-2"><div class="section-icon purple">🔬</div> Component Risk Details</div>
+          <div id="risk-components-list">
+            <div class="empty-state">
+              <div class="spinner spinner-lg"></div>
+              <div class="empty-title">Loading risk data…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── COMPLIANCE VIEW ─────────────────── -->
+      <section class="view" id="view-compliance">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon emerald">✅</div>
+            <h2>Compliance & Governance</h2>
+          </div>
+          <button class="btn btn-primary" onclick="App.compliance.generateReport()">📄 Generate Report</button>
+        </div>
+
+        <div class="stats-grid mb-3">
+          <div class="stat-card emerald">
+            <div class="stat-icon">📋</div>
+            <div class="stat-label">Policies</div>
+            <div class="stat-value" id="comp-stat-policies">—</div>
+          </div>
+          <div class="stat-card cyan">
+            <div class="stat-icon">📊</div>
+            <div class="stat-label">Reports Generated</div>
+            <div class="stat-value" id="comp-stat-reports">—</div>
+          </div>
+          <div class="stat-card purple">
+            <div class="stat-icon">📝</div>
+            <div class="stat-label">Audit Events (7d)</div>
+            <div class="stat-value" id="comp-stat-audits">—</div>
+          </div>
+        </div>
+
+        <div class="grid-2 mb-3">
+          <div class="card">
+            <div class="section-title mb-2"><div class="section-icon emerald">📋</div> Compliance Frameworks</div>
+            <div id="compliance-frameworks">
+              <!-- Rendered by JS -->
+            </div>
+          </div>
+          <div class="card">
+            <div class="section-title mb-2"><div class="section-icon cyan">📜</div> Active Policies</div>
+            <div id="policies-list">
+              <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-title mb-2"><div class="section-icon purple">📝</div> Audit Log</div>
+          <div id="audit-log-list">
+            <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SETTINGS VIEW ───────────────────── -->
+      <section class="view" id="view-settings">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon cyan">⚙️</div>
+            <h2>Settings</h2>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3 class="mb-2">API Health</h3>
+            <div id="health-details">
+              <div class="empty-state"><div class="spinner spinner-lg"></div></div>
+            </div>
+            <button class="btn btn-secondary mt-2" onclick="App.health.check()">🔄 Check Health</button>
+          </div>
+          <div class="card">
+            <h3 class="mb-2">API Keys</h3>
+            <p class="text-muted text-sm mb-2">API keys allow programmatic access to the platform.</p>
+            <div class="form-group">
+              <label class="form-label">Current API Key</label>
+              <input class="form-input font-mono" type="text" id="api-key-display" value="sk-•••••••••••••••••••••••••••" readonly />
+            </div>
+            <button class="btn btn-secondary" onclick="App.settings.generateKey()">🔑 Generate New Key</button>
+          </div>
+          <div class="card">
+            <h3 class="mb-2">Profile</h3>
+            <div id="profile-details"></div>
+          </div>
+          <div class="card">
+            <h3 class="mb-2">Platform Info</h3>
+            <table>
+              <tr><td>Version</td><td class="text-cyan font-mono">1.0.0</td></tr>
+              <tr><td>API Base</td><td class="font-mono text-sm">/api/v1</td></tr>
+              <tr><td>Docs</td><td><a href="/docs" target="_blank" class="text-cyan">Swagger UI →</a></td></tr>
+              <tr><td>ReDoc</td><td><a href="/redoc" target="_blank" class="text-cyan">ReDoc →</a></td></tr>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main><!-- /page-content -->
+  </div><!-- /main-wrap -->
+</div><!-- /app -->
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<!-- App Script -->
+<script src="/app.js"></script>
+
+<script>
+  // Initialize Lucide icons after DOM load
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.lucide) lucide.createIcons();
+  });
+</script>
+</body>
+</html>
