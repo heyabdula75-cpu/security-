@@ -3,7 +3,7 @@ Compliance request and response schemas.
 """
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 
 
@@ -32,9 +32,7 @@ class CompliancePolicyResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-        populate_by_name = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # ==================== Report Schemas ====================
@@ -59,8 +57,7 @@ class ComplianceReportResponse(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ComplianceReportStatusUpdate(BaseModel):
@@ -87,8 +84,7 @@ class AuditLogResponse(BaseModel):
     user_agent: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AuditLogSummaryResponse(BaseModel):

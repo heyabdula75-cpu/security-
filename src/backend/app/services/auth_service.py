@@ -1,25 +1,36 @@
-"""Authentication service helpers."""
+"""Authentication service helpers with eager-loaded roles for async SQLAlchemy."""
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.models import User, Organization, Role
-from app.utils.password_utils import get_password_hash, verify_password
-from app.utils.jwt_utils import create_access_token, create_refresh_token
-from app.utils.time_utils import utcnow
 from app.config import settings
+from app.models import Organization, Role, User
+from app.utils.jwt_utils import create_access_token, create_refresh_token
+from app.utils.password_utils import get_password_hash, verify_password
+from app.utils.time_utils import utcnow
+
+
+def _as_uuid(value: str | UUID) -> UUID | str:
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except ValueError:
+        return str(value)
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> Optional[User]:
-    statement = select(User).where(User.email == email)
+    statement = select(User).options(selectinload(User.roles)).where(User.email == email)
     result = await session.execute(statement)
     return result.scalars().first()
 
 
-async def get_user_by_id(session: AsyncSession, user_id: str) -> Optional[User]:
-    statement = select(User).where(User.id == user_id)
+async def get_user_by_id(session: AsyncSession, user_id: str | UUID) -> Optional[User]:
+    statement = select(User).options(selectinload(User.roles)).where(User.id == _as_uuid(user_id))
     result = await session.execute(statement)
     return result.scalars().first()
 
@@ -92,8 +103,7 @@ async def register_user(
     user.roles.append(role)
     session.add(user)
     await session.commit()
-    await session.refresh(user)
-    return user
+    return await get_user_by_id(session, user.id)
 
 
 async def authenticate_user(session: AsyncSession, email: str, password: str) -> Optional[User]:
@@ -101,10 +111,9 @@ async def authenticate_user(session: AsyncSession, email: str, password: str) ->
     if not user or not verify_password(password, user.password_hash):
         return None
 
-    user.last_login = utcnow()
+    user.last_login = utcnow().replace(tzinfo=None)
     await session.commit()
-    await session.refresh(user)
-    return user
+    return await get_user_by_id(session, user.id)
 
 
 async def create_tokens(user_id: str) -> tuple[str, str, int]:

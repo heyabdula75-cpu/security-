@@ -1,0 +1,24 @@
+# Python & Virtualenvs
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Local Databases & Secrets
+pgdata/
+*.db
+*.sqlite
+*.sqlite3
+.env
+src/backend/.env
+.pgpass_init
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.log

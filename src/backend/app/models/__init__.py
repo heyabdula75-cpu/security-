@@ -8,6 +8,9 @@ from app.models.sbom import Sbom
 from app.models.component import Component
 from app.models.vulnerability import Vulnerability
 from app.models.component_vulnerability import ComponentVulnerability
+from app.models.threat import ThreatDetection
+from app.models.vex import VexStatement
+from app.models.enterprise import ApiKey, WebhookEndpoint, SbomSignature
 from app.models.compliance import CompliancePolicy, ComplianceReport, AuditLog, ComplianceFramework, PolicyStatus, ReportStatus, AuditAction
 
 __all__ = [
@@ -21,6 +24,11 @@ __all__ = [
     "Component",
     "Vulnerability",
     "ComponentVulnerability",
+    "ThreatDetection",
+    "VexStatement",
+    "ApiKey",
+    "WebhookEndpoint",
+    "SbomSignature",
     "CompliancePolicy",
     "ComplianceReport",
     "AuditLog",

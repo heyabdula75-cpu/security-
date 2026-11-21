@@ -145,6 +145,7 @@ async def logout():
     return None
 
 
+@router.get("/auth/me", response_model=dict)
 @router.get("/auth/profile", response_model=dict)
 async def get_profile(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """

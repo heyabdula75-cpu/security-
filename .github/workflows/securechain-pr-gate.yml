@@ -1,0 +1,71 @@
+name: SecureChain Supply Chain PR Gate
+
+on:
+  pull_request:
+    branches: [ main, master, develop ]
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  supply-chain-gate:
+    name: SBOM, CVE (KEV/EPSS), Threat & Reachability Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run SecureChain CLI Scan
+        id: securechain
+        continue-on-error: true
+        run: |
+          python cli/securechain_cli.py scan . \
+            --fail-on critical \
+            --cyclonedx sbom-cyclonedx.json \
+            --sarif securechain-results.sarif \
+            --markdown pr-security-summary.md
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: securechain-results.sarif
+          category: securechain-supply-chain
+
+      - name: Upload CycloneDX SBOM Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyclonedx-sbom
+          path: sbom-cyclonedx.json
+
+      - name: Comment Summary on Pull Request
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('pr-security-summary.md')) return;
+            const body = fs.readFileSync('pr-security-summary.md', 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      - name: Enforce Policy Gate
+        if: steps.securechain.outcome == 'failure'
+        run: |
+          echo "SecureChain policy gate failed due to Critical/KEV or high-risk supply chain threats."
+          exit 1

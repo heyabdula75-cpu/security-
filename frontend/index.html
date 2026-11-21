@@ -130,6 +130,15 @@
       <div class="nav-item" id="nav-risks" onclick="App.router.go('risks')">
         <span class="nav-icon">📈</span> Risk Scoring
       </div>
+      <div class="nav-item" id="nav-graph" onclick="App.router.go('graph')">
+        <span class="nav-icon">🕸️</span> Dependency Graph
+      </div>
+      <div class="nav-item" id="nav-vex" onclick="App.router.go('vex')">
+        <span class="nav-icon">🎯</span> VEX &amp; Reachability
+      </div>
+      <div class="nav-item" id="nav-copilot" onclick="App.router.go('copilot')">
+        <span class="nav-icon">🤖</span> AI Copilot &amp; AI-BOM
+      </div>
 
       <div class="nav-section-label">Governance</div>
       <div class="nav-item" id="nav-compliance" onclick="App.router.go('compliance')">
@@ -169,6 +178,9 @@
           <div class="status-dot"></div>
           <span class="text-xs text-muted" id="db-status-text">Connecting…</span>
         </div>
+        <button class="btn btn-secondary" onclick="EnterpriseUI.syncLiveIntel()" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
+          ⚡ Sync Live Intel
+        </button>
         <button class="btn btn-secondary" onclick="App.health.check()" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
           🔄 Refresh
         </button>
@@ -315,33 +327,61 @@
           <button class="btn btn-primary" onclick="App.sboms.showUpload()">+ Generate / Upload SBOM</button>
         </div>
 
-        <!-- Upload/generate form -->
+        <!-- Upload/parse form -->
         <div class="card mb-3" id="sbom-upload-form" style="display:none;">
-          <h3 class="mb-2">Generate SBOM</h3>
+          <h3 class="mb-2">Upload &amp; Parse SBOM / Lockfile</h3>
           <div class="grid-2">
             <div class="form-group">
-              <label class="form-label">SBOM Name *</label>
-              <input class="form-input" id="sbom-name" placeholder="my-app-v1.2.3" required />
+              <label class="form-label">Project *</label>
+              <select class="form-input" id="sbom-project-select"></select>
             </div>
             <div class="form-group">
-              <label class="form-label">Format</label>
+              <label class="form-label">Source Format</label>
               <select class="form-input" id="sbom-format">
-                <option value="cyclonedx">CycloneDX JSON</option>
-                <option value="spdx">SPDX JSON</option>
+                <option value="auto">Auto-Detect</option>
+                <option value="requirements.txt">Python (requirements.txt)</option>
+                <option value="package-lock.json">npm (package-lock.json)</option>
+                <option value="package.json">npm (package.json)</option>
+                <option value="go.mod">Go (go.mod)</option>
+                <option value="dockerfile">Dockerfile</option>
+                <option value="cyclonedx-json">CycloneDX JSON</option>
+                <option value="spdx-json">SPDX JSON</option>
               </select>
             </div>
           </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">Version Label</label>
+              <input class="form-input" id="sbom-name" placeholder="1.0.0" value="1.0.0" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Load Local File</label>
+              <input class="form-input" type="file" id="sbom-file-input" onchange="App.sboms.loadFile(event)" />
+            </div>
+          </div>
           <div class="form-group">
-            <label class="form-label">Source Repository URL</label>
-            <input class="form-input" id="sbom-source" placeholder="https://github.com/org/repo" />
+            <label class="form-label">Manifest / SBOM Content *</label>
+            <textarea class="form-input font-mono" id="sbom-content" rows="5" placeholder="Paste requirements.txt, package-lock.json, go.mod, Dockerfile, CycloneDX, or SPDX JSON..."></textarea>
           </div>
           <div class="flex gap-1">
-            <button class="btn btn-primary" onclick="App.sboms.generate()">🔄 Generate SBOM</button>
+            <button class="btn btn-primary" onclick="App.sboms.upload()">🚀 Upload &amp; Auto-Scan</button>
             <button class="btn btn-secondary" onclick="App.sboms.hideUpload()">Cancel</button>
           </div>
           <div id="sbom-terminal-wrap" class="mt-2" style="display:none;">
             <div class="terminal scan-overlay" id="sbom-terminal"></div>
           </div>
+        </div>
+
+        <!-- SBOM Diff & Completeness Panel -->
+        <div class="card mb-3" id="sbom-tools-panel">
+          <div class="flex items-center gap-1" style="flex-wrap:wrap;">
+            <strong class="text-sm">Compare SBOMs:</strong>
+            <select class="form-input" id="diff-base-select" style="width:auto; min-width:180px; padding:0.35rem 0.6rem; font-size:0.8rem;"></select>
+            <span class="text-muted text-xs">vs</span>
+            <select class="form-input" id="diff-head-select" style="width:auto; min-width:180px; padding:0.35rem 0.6rem; font-size:0.8rem;"></select>
+            <button class="btn btn-secondary" style="font-size:0.8rem; padding:0.35rem 0.75rem;" onclick="App.sboms.runDiff()">🔀 Diff SBOMs</button>
+          </div>
+          <div id="sbom-inspect-output" class="mt-2" style="display:none;"></div>
         </div>
 
         <div class="card">
@@ -519,6 +559,100 @@
         </div>
       </section>
 
+      <!-- ── DEPENDENCY GRAPH VIEW ──────────── -->
+      <section class="view" id="view-graph">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon cyan">🕸️</div>
+            <h2>Interactive Dependency Graph</h2>
+          </div>
+          <select class="form-input" id="graph-sbom-select" onchange="EnterpriseUI.renderGraph(this.value)" style="width:auto; min-width:240px;"></select>
+        </div>
+        <div class="card mb-3" id="dep-graph-canvas"></div>
+        <div class="card" id="dep-graph-inspector">
+          <p class="text-muted text-sm">Select an SBOM to visualize component relationships and active threats.</p>
+        </div>
+      </section>
+
+      <!-- ── VEX & REACHABILITY WORKBENCH ───── -->
+      <section class="view" id="view-vex">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon purple">🎯</div>
+            <h2>VEX &amp; AST Reachability Workbench</h2>
+          </div>
+          <div class="flex gap-1">
+            <select class="form-input" id="vex-sbom-select" onchange="EnterpriseUI.refreshVexList()" style="width:auto; min-width:220px;"></select>
+            <button class="btn btn-secondary" onclick="EnterpriseUI.exportVexDoc('openvex')">Export OpenVEX</button>
+            <button class="btn btn-secondary" onclick="EnterpriseUI.exportVexDoc('cyclonedx')">Export CycloneDX VEX</button>
+          </div>
+        </div>
+        <div class="grid-2 mb-3">
+          <div class="card">
+            <h3 class="mb-2">Python / JS AST Reachability Analyzer</h3>
+            <div class="form-group">
+              <label class="form-label">Source File Path</label>
+              <input class="form-input font-mono" id="reach-filename" value="app.py" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Application Source Code</label>
+              <textarea class="form-input font-mono" id="reach-code" rows="6" placeholder="import requests&#10;requests.get('https://api.example.com')"></textarea>
+            </div>
+            <label class="flex items-center gap-1 text-xs mb-2">
+              <input type="checkbox" id="reach-autovex" checked /> Auto-generate OpenVEX 'not_affected' for unreachable CVEs
+            </label>
+            <button class="btn btn-primary" onclick="EnterpriseUI.runReachability()">🔬 Run AST Reachability</button>
+          </div>
+          <div class="card">
+            <h3 class="mb-2">Reachability Analysis Output</h3>
+            <div id="reach-output"><p class="text-muted text-sm">Run an analysis to filter unreachable CVEs and slash alert fatigue.</p></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="mb-2">Persisted VEX Attestations</h3>
+          <div id="vex-statements-list"></div>
+        </div>
+      </section>
+
+      <!-- ── AI COPILOT & AI-BOM VIEW ───────── -->
+      <section class="view" id="view-copilot">
+        <div class="section-header mb-3">
+          <div class="section-title">
+            <div class="section-icon cyan">🤖</div>
+            <h2>AI Security Copilot &amp; Deep AI-BOM Scanner</h2>
+          </div>
+        </div>
+        <div class="grid-2 mb-3">
+          <div class="card">
+            <h3 class="mb-2">Security Copilot (Live Data-Grounded)</h3>
+            <div class="flex gap-1 mb-2" style="flex-wrap:wrap;">
+              <button class="btn btn-secondary" style="font-size:.75rem;padding:.3rem .6rem;" onclick="EnterpriseUI.askCopilot('Which packages have CISA KEV vulnerabilities?')">CISA KEV Exposure</button>
+              <button class="btn btn-secondary" style="font-size:.75rem;padding:.3rem .6rem;" onclick="EnterpriseUI.askCopilot('Draft an EU CRA executive compliance summary')">Executive Compliance Summary</button>
+              <button class="btn btn-secondary" style="font-size:.75rem;padding:.3rem .6rem;" onclick="EnterpriseUI.askCopilot('Show typosquatting and supply chain threats')">Supply-Chain Threats</button>
+            </div>
+            <div id="copilot-messages" style="min-height:200px; max-height:340px; overflow-y:auto; margin-bottom:.75rem;"></div>
+            <div class="flex gap-1">
+              <input class="form-input" id="copilot-input" placeholder="Ask about KEV CVEs, EU CRA readiness, or threats…" onkeydown="if(event.key==='Enter') EnterpriseUI.askCopilot()" />
+              <button class="btn btn-primary" onclick="EnterpriseUI.askCopilot()">Ask</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3 class="mb-2">Deep AI-BOM &amp; Model Safety Scanner</h3>
+            <p class="text-muted text-xs mb-2">Statically scans HuggingFace configs, Ollama Modelfiles, and Python ML loader code for unsafe pickle/remote code execution.</p>
+            <div class="form-group">
+              <label class="form-label">Artifact Filename</label>
+              <input class="form-input font-mono" id="aibom-filename" value="load_model.py" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Config / Loader Code</label>
+              <textarea class="form-input font-mono" id="aibom-content" rows="5" placeholder="model = AutoModel.from_pretrained('org/model', trust_remote_code=True)"></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="EnterpriseUI.scanAiBom()">🛡️ Scan AI Artifact</button>
+            <div id="aibom-output" class="mt-2"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- ── SETTINGS VIEW ───────────────────── -->
       <section class="view" id="view-settings">
         <div class="section-header mb-3">
@@ -537,13 +671,27 @@
             <button class="btn btn-secondary mt-2" onclick="App.health.check()">🔄 Check Health</button>
           </div>
           <div class="card">
-            <h3 class="mb-2">API Keys</h3>
-            <p class="text-muted text-sm mb-2">API keys allow programmatic access to the platform.</p>
-            <div class="form-group">
-              <label class="form-label">Current API Key</label>
-              <input class="form-input font-mono" type="text" id="api-key-display" value="sk-•••••••••••••••••••••••••••" readonly />
+            <h3 class="mb-2">Scoped API Keys (CLI &amp; CI/CD)</h3>
+            <p class="text-muted text-sm mb-2">SHA-256 hashed keys for <code>securechain-cli</code> and GitHub Actions.</p>
+            <div class="flex gap-1 mb-2">
+              <input class="form-input" id="new-key-name" placeholder="GitHub Actions Prod" />
+              <button class="btn btn-primary" onclick="EnterpriseUI.createRealApiKey()">🔑 Create Key</button>
             </div>
-            <button class="btn btn-secondary" onclick="App.settings.generateKey()">🔑 Generate New Key</button>
+            <div class="form-group">
+              <label class="form-label">Latest Plaintext Key (copied once)</label>
+              <input class="form-input font-mono" type="text" id="api-key-display" value="Create a key to view…" readonly />
+            </div>
+            <div id="api-keys-list" class="mt-2"></div>
+          </div>
+          <div class="card">
+            <h3 class="mb-2">Enterprise Alert Webhooks</h3>
+            <p class="text-muted text-sm mb-2">HMAC-SHA256 signed alerts to Slack, Teams, Jira, or SIEM.</p>
+            <div class="flex gap-1 mb-2">
+              <input class="form-input" id="webhook-name" placeholder="Slack SecOps" style="max-width:140px;" />
+              <input class="form-input" id="webhook-url" placeholder="https://hooks.slack.com/services/…" />
+              <button class="btn btn-secondary" onclick="EnterpriseUI.addWebhook()">Add</button>
+            </div>
+            <div id="webhooks-list"></div>
           </div>
           <div class="card">
             <h3 class="mb-2">Profile</h3>
@@ -568,8 +716,9 @@
 <!-- Toast Container -->
 <div id="toast-container"></div>
 
-<!-- App Script -->
-<script src="/app.js"></script>
+<!-- App Scripts -->
+<script src="/app.js?v=2.1"></script>
+<script src="/enterprise_views.js?v=2.1"></script>
 
 <script>
   // Initialize Lucide icons after DOM load

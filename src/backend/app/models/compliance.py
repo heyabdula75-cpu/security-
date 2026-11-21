@@ -20,6 +20,10 @@ class ComplianceFramework(str, enum.Enum):
     HIPAA = "HIPAA"
     GDPR = "GDPR"
     CIS = "CIS_CONTROLS"
+    EU_CRA = "EU_CRA"
+    CISA_2026 = "CISA_2026"
+    FDA_524B = "FDA_524B"
+    EU_AI_ACT = "EU_AI_ACT"
 
 
 class PolicyStatus(str, enum.Enum):

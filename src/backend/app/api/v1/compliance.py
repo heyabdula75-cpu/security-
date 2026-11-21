@@ -23,8 +23,29 @@ from app.schemas.compliance import (
     AuditLogsListResponse,
 )
 from app.services import compliance_service
+from app.services.compliance_evaluator import evaluate_organization_compliance
 
 router = APIRouter()
+
+
+@router.get("/compliance/evaluate")
+async def evaluate_compliance(
+    sbom_id: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Automatically evaluate live SBOMs, CVEs, KEV, VEX, and threats against EU CRA, CISA 2026, FDA 524B, EU AI Act, and NIST SSDF."""
+    org_id = current_user.get("organization_id")
+    if not org_id:
+        from app.services.auth_service import get_user_by_id
+
+        user = await get_user_by_id(db, current_user.get("sub", ""))
+        if not user or not user.organization_id:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        org_id = str(user.organization_id)
+
+    evaluation = await evaluate_organization_compliance(db, org_id, sbom_id=sbom_id)
+    return {"success": True, "data": evaluation}
 
 
 # ==================== Compliance Policies ====================

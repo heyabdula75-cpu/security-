@@ -1,0 +1,24 @@
+databases:
+  - name: securechain-db
+    databaseName: sbom_platform
+    user: securechain
+    plan: free
+
+services:
+  - type: web
+    name: securechain-platform
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: securechain-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "480"
+      - key: DB_SSL_MODE
+        value: "require"

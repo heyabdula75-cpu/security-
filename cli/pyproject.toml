@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "securechain-cli"
+version = "1.1.0"
+description = "SecureChain DevSecOps Supply Chain, SBOM, CVE/KEV, Threat & AST Reachability CLI"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "SecureChain Engineering" }]
+
+[project.scripts]
+securechain = "securechain_cli:main"
+
+[tool.setuptools]
+py-modules = ["securechain_cli"]

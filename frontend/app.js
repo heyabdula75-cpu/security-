@@ -88,6 +88,15 @@ const API = {
     try {
       const res = await fetch(`${this.BASE}${path}`, opts);
       const json = await res.json().catch(() => ({}));
+      if (res.status === 401 && auth && State.token) {
+        State.token = null;
+        State.user = null;
+        localStorage.removeItem('sc_token');
+        localStorage.removeItem('sc_user');
+        $('app')?.classList.remove('visible');
+        if ($('auth-screen')) $('auth-screen').style.display = 'flex';
+        Toast.warn('Session expired — please sign in again.');
+      }
       if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`);
       return json;
     } catch (err) {
@@ -98,6 +107,7 @@ const API = {
   get(path, auth = true)        { return this._req('GET',    path, null,  auth); },
   post(path, body, auth = true)  { return this._req('POST',   path, body,  auth); },
   put(path, body, auth = true)   { return this._req('PUT',    path, body,  auth); },
+  patch(path, body, auth = true) { return this._req('PATCH',  path, body,  auth); },
   delete(path, auth = true)      { return this._req('DELETE', path, null,  auth); },
 
   // Health
@@ -120,8 +130,12 @@ const API = {
     const qs = project_id ? `?project_id=${project_id}` : '';
     return this.get(`/sboms${qs}`);
   },
-  createSbom(data)  { return this.post('/sboms', data); },
-  getSbom(id)       { return this.get(`/sboms/${id}`); },
+  uploadSbom(data)       { return this.post('/sboms/upload', data); },
+  createSbom(data)       { return this.post('/sboms/upload', data); },
+  getSbom(id)            { return this.get(`/sboms/${id}`); },
+  exportSbom(id, fmt)    { return this.get(`/sboms/${id}/export?format=${fmt}`); },
+  diffSboms(base, head)  { return this.get(`/sboms/diff?base_sbom_id=${base}&head_sbom_id=${head}`); },
+  sbomCompleteness(id)   { return this.get(`/sboms/${id}/completeness`); },
 
   // Vulnerabilities
   listVulns(project_id, severity) {
@@ -133,8 +147,9 @@ const API = {
   },
 
   // Threats
-  listThreats()    { return this.get('/threats'); },
-  detectThreats(data) { return this.post('/threats/detect', data); },
+  listThreats()          { return this.get('/threats'); },
+  detectThreats(sbomId)  { return this.post(`/threats/detect?sbom_id=${sbomId}`, null); },
+  triageThreat(id, st)   { return this.patch(`/threats/${id}`, { status: st }); },
 
   // Risks
   listRisks(project_id) {
@@ -143,10 +158,11 @@ const API = {
   },
 
   // Compliance
-  listPolicies()    { return this.get('/compliance/policies'); },
-  listReports()     { return this.get('/compliance/reports'); },
-  listAuditLogs(days = 7) { return this.get(`/compliance/audit-logs?days=${days}`); },
-  createReport(data) { return this.post('/compliance/reports', data); },
+  listPolicies()         { return this.get('/compliance/policies'); },
+  listReports()          { return this.get('/compliance/reports'); },
+  listAuditLogs(days = 7){ return this.get(`/compliance/audit-logs?days=${days}`); },
+  evaluateCompliance()   { return this.get('/compliance/evaluate'); },
+  createReport(data)     { return this.post('/compliance/reports', data); },
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -242,17 +258,20 @@ const Charts = {
    ROUTER
 ══════════════════════════════════════════════════════════ */
 const Router = {
-  views: ['dashboard', 'projects', 'sboms', 'vulnerabilities', 'threats', 'risks', 'compliance', 'settings'],
+  views: ['dashboard', 'projects', 'sboms', 'vulnerabilities', 'threats', 'risks', 'graph', 'vex', 'copilot', 'compliance', 'settings'],
 
   titles: {
-    dashboard:       ['Dashboard',          'AI Supply Chain Security Overview'],
-    projects:        ['Projects',           'Manage your software projects'],
-    sboms:           ['SBOM Management',    'Software Bill of Materials'],
-    vulnerabilities: ['Vulnerabilities',    'Known security vulnerabilities in dependencies'],
-    threats:         ['Threat Detection',   'AI-powered supply chain threat analysis'],
-    risks:           ['Risk Scoring',       'Component and project risk assessments'],
-    compliance:      ['Compliance',         'Policy enforcement & governance reports'],
-    settings:        ['Settings',           'Platform configuration & diagnostics'],
+    dashboard:       ['Dashboard',            'AI Supply Chain Security Overview'],
+    projects:        ['Projects',             'Manage your software projects'],
+    sboms:           ['SBOM Management',      'Software Bill of Materials'],
+    vulnerabilities: ['Vulnerabilities',      'Known security vulnerabilities in dependencies'],
+    threats:         ['Threat Detection',     'AI-powered supply chain threat analysis'],
+    risks:           ['Risk Scoring',         'Component and project risk assessments'],
+    graph:           ['Dependency Graph',     'Interactive component & threat topology'],
+    vex:             ['VEX & Reachability',   'AST reachability & OpenVEX / CycloneDX VEX workbench'],
+    copilot:         ['AI Security Copilot',  'Data-grounded assistant & Deep AI-BOM scanner'],
+    compliance:      ['Compliance',           'Automated regulatory compliance & governance'],
+    settings:        ['Settings',             'Scoped API keys, webhooks & diagnostics'],
   },
 
   go(view) {
@@ -481,21 +500,42 @@ const ViewLoaders = {
   async sboms() {
     const el = $('sboms-list');
     try {
-      const res = await API.listSboms();
-      const sboms = res?.data ?? Mock.sboms();
+      const [res, projRes] = await Promise.allSettled([API.listSboms(), API.listProjects(50)]);
+      const sboms = res.value?.data ?? [];
+      const projects = projRes.value?.data ?? State.data.projects;
       State.data.sboms = sboms;
+      State.data.projects = projects;
+
+      // Populate project selector and diff selectors
+      const projSel = $('sbom-project-select');
+      if (projSel) {
+        projSel.innerHTML = projects.length
+          ? projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('')
+          : '<option value="">Create a project first</option>';
+      }
+      const opts = sboms.map(s => `<option value="${s.id}">${s.format} v${s.version ?? '1.0'} (${s.component_count ?? 0} comps)</option>`).join('');
+      if ($('diff-base-select')) $('diff-base-select').innerHTML = opts || '<option value="">No SBOMs</option>';
+      if ($('diff-head-select')) $('diff-head-select').innerHTML = opts || '<option value="">No SBOMs</option>';
+
       if (!sboms.length) {
-        el.innerHTML = `<div class="empty-state"><div class="empty-icon">📦</div><div class="empty-title">No SBOMs yet</div><div class="empty-sub">Generate or upload an SBOM to start scanning.</div></div>`;
+        el.innerHTML = `<div class="empty-state"><div class="empty-icon">📦</div><div class="empty-title">No SBOMs yet</div><div class="empty-sub">Upload a lockfile, Dockerfile, CycloneDX, or SPDX SBOM to start scanning.</div></div>`;
         return;
       }
       el.innerHTML = `<div class="table-wrap"><table>
-        <thead><tr><th>Name</th><th>Format</th><th>Components</th><th>Status</th><th>Created</th></tr></thead>
+        <thead><tr><th>Format &amp; Version</th><th>Components</th><th>Vulns</th><th>Risk</th><th>Generated</th><th>Actions</th></tr></thead>
         <tbody>${sboms.map(s => `<tr>
-          <td><strong>${s.name}</strong></td>
-          <td><span class="badge badge-info">${(s.format ?? 'cyclonedx').toUpperCase()}</span></td>
-          <td class="font-mono">${s.component_count ?? '—'}</td>
-          <td><span class="badge badge-ok">${s.status ?? 'completed'}</span></td>
-          <td class="text-muted text-xs">${fmtDate(s.created_at)}</td>
+          <td><span class="badge badge-info">${(s.format ?? 'cyclonedx').toUpperCase()}</span> <span class="font-mono text-xs">v${s.version ?? '1.0'}</span></td>
+          <td class="font-mono">${s.component_count ?? 0}</td>
+          <td class="font-mono">${s.vulnerability_count ?? 0}</td>
+          <td class="font-mono fw-700">${s.risk_score ?? 0}</td>
+          <td class="text-muted text-xs">${fmtDate(s.generated_at ?? s.created_at)}</td>
+          <td class="flex gap-1" style="flex-wrap:wrap;">
+            <button class="btn btn-secondary" style="font-size:.7rem;padding:.25rem .45rem;" onclick="App.sboms.checkCompleteness('${s.id}')">CISA</button>
+            <button class="btn btn-secondary" style="font-size:.7rem;padding:.25rem .45rem;" onclick="EnterpriseUI.signAndVerify('${s.id}')">🔐 Sign</button>
+            <button class="btn btn-secondary" style="font-size:.7rem;padding:.25rem .45rem;" onclick="EnterpriseUI.showAutofix('${s.id}')">🔧 Auto-Fix</button>
+            <button class="btn btn-secondary" style="font-size:.7rem;padding:.25rem .45rem;" onclick="EnterpriseUI.downloadAuditBundle('${s.id}')">📦 Audit</button>
+            <button class="btn btn-secondary" style="font-size:.7rem;padding:.25rem .45rem;" onclick="App.sboms.exportDoc('${s.id}','cyclonedx')">CDX</button>
+          </td>
         </tr>`).join('')}</tbody>
       </table></div>`;
     } catch (e) {
@@ -541,7 +581,7 @@ const ViewLoaders = {
       State.data.threats = threats;
 
       const typosquat = threats.filter(t => t.threat_type === 'typosquatting').length;
-      const depconf   = threats.filter(t => t.threat_type === 'dependency_confusion').length;
+      const depconf   = threats.filter(t => t.threat_type === 'dependency-confusion' || t.threat_type === 'dependency_confusion').length;
       $('threat-typosquat-count').textContent = typosquat;
       $('threat-depconf-count').textContent   = depconf;
 
@@ -549,20 +589,31 @@ const ViewLoaders = {
         elList.innerHTML = `<div class="empty-state"><div class="empty-icon">🛡️</div><div class="empty-title">No threats detected</div><div class="empty-sub">Your supply chain looks clean.</div></div>`;
         return;
       }
+      const statuses = ['open', 'investigating', 'false_positive', 'mitigated', 'accepted'];
       elList.innerHTML = `<div class="table-wrap"><table>
-        <thead><tr><th>Type</th><th>Package</th><th>Severity</th><th>Confidence</th><th>Detected</th></tr></thead>
-        <tbody>${threats.map(t => `<tr>
-          <td><strong>${(t.threat_type ?? 'unknown').replace(/_/g,' ')}</strong></td>
-          <td class="font-mono">${t.package_name ?? '—'}</td>
+        <thead><tr><th>Type</th><th>Component</th><th>Severity</th><th>Confidence</th><th>Triage Status</th><th>Detected</th></tr></thead>
+        <tbody>${threats.map(t => {
+          const conf = t.confidence_score ?? t.confidence ?? 0.8;
+          const pkg  = t.component_name ?? t.package_name ?? 'SBOM-wide';
+          const curStatus = t.status ?? 'open';
+          return `<tr>
+          <td><strong>${(t.threat_type ?? 'unknown').replace(/[_-]/g,' ')}</strong><div class="text-muted text-xs">${t.summary ?? ''}</div></td>
+          <td class="font-mono">${pkg}</td>
           <td><span class="badge badge-${(t.severity ?? 'low').toLowerCase()}">${(t.severity ?? 'low').toUpperCase()}</span></td>
           <td>
-            <div class="progress-bar" style="width:100px;display:inline-block;vertical-align:middle;">
-              <div class="progress-fill" style="width:${Math.round((t.confidence ?? 0.8)*100)}%;background:${(t.severity==='critical')?'var(--rose)':(t.severity==='high')?'var(--amber)':'var(--cyan)'}"></div>
+            <div class="progress-bar" style="width:80px;display:inline-block;vertical-align:middle;">
+              <div class="progress-fill" style="width:${Math.round(conf*100)}%;background:${(t.severity==='critical')?'var(--rose)':(t.severity==='high')?'var(--amber)':'var(--cyan)'}"></div>
             </div>
-            <span class="font-mono text-xs ml-auto" style="margin-left:.5rem;">${Math.round((t.confidence ?? 0.8)*100)}%</span>
+            <span class="font-mono text-xs" style="margin-left:.4rem;">${Math.round(conf*100)}%</span>
+          </td>
+          <td>
+            <select class="form-input" style="width:auto;padding:.25rem .45rem;font-size:.75rem;" onchange="App.threats.triage('${t.id}', this.value)">
+              ${statuses.map(st => `<option value="${st}" ${st===curStatus?'selected':''}>${st.replace('_',' ')}</option>`).join('')}
+            </select>
           </td>
           <td class="text-muted text-xs">${fmtDate(t.detected_at ?? t.created_at)}</td>
-        </tr>`).join('')}</tbody>
+        </tr>`;
+        }).join('')}</tbody>
       </table></div>`;
     } catch (e) {
       elList.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Error loading threats</div><div class="empty-sub">${e.message}</div></div>`;
@@ -644,26 +695,29 @@ const ViewLoaders = {
 
   async compliance() {
     try {
-      const [polRes, repRes, audRes] = await Promise.allSettled([
+      const [polRes, repRes, audRes, evalRes] = await Promise.allSettled([
         API.listPolicies(),
         API.listReports(),
         API.listAuditLogs(7),
+        API.evaluateCompliance(),
       ]);
 
-      const policies = polRes.value?.data ?? [];
-      const reports  = repRes.value?.data ?? [];
-      const audits   = audRes.value?.data ?? [];
+      const policies = polRes.value?.policies ?? polRes.value?.data ?? [];
+      const reports  = repRes.value?.reports ?? repRes.value?.data ?? [];
+      const audits   = audRes.value?.logs ?? audRes.value?.data ?? [];
+      const evalData = evalRes.value?.data ?? null;
 
       $('comp-stat-policies').textContent = policies.length;
       $('comp-stat-reports').textContent  = reports.length;
       $('comp-stat-audits').textContent   = audits.length;
 
-      // Frameworks
-      const frameworks = [
-        { name: 'NIST SP 800-218 (SSDF)', score: randInt(70,96) },
-        { name: 'CIS Software Supply Chain', score: randInt(65,92) },
-        { name: 'EO 14028 (Executive Order)', score: randInt(60,90) },
-        { name: 'SLSA Level 2', score: randInt(55,88) },
+      // Live automated regulatory compliance frameworks (EU CRA, CISA 2026, FDA 524B, EU AI Act, NIST SSDF)
+      const frameworks = evalData?.frameworks ?? [
+        { name: 'EU Cyber Resilience Act (CRA)', score: 0, grade: 'F' },
+        { name: 'CISA 2026 Minimum Elements (SBOM)', score: 0, grade: 'F' },
+        { name: 'US FDA Section 524B (Cyber Devices)', score: 0, grade: 'F' },
+        { name: 'EU AI Act (Annex IV / AI-BOM)', score: 0, grade: 'F' },
+        { name: 'NIST SP 800-218 (SSDF)', score: 0, grade: 'F' },
       ];
       const frameworksEl = $('compliance-frameworks');
       if (frameworksEl) {
@@ -671,7 +725,7 @@ const ViewLoaders = {
           <div class="compliance-item">
             <div class="compliance-header">
               <span class="compliance-name">${f.name}</span>
-              <span class="compliance-score text-${f.score>=80?'emerald':f.score>=60?'amber':'rose'}">${f.score}%</span>
+              <span class="compliance-score text-${f.score>=80?'emerald':f.score>=60?'amber':'rose'}">${f.score}% (${f.grade ?? ''})</span>
             </div>
             <div class="progress-bar"><div class="progress-fill" style="width:${f.score}%;background:${f.score>=80?'var(--emerald)':f.score>=60?'var(--amber)':'var(--rose)'}"></div></div>
           </div>`).join('');
@@ -716,9 +770,14 @@ const ViewLoaders = {
     }
   },
 
+  async graph() { window.EnterpriseUI?.loadGraph(); },
+  async vex()   { window.EnterpriseUI?.loadVexWorkbench(); },
+  async copilot() {},
+
   async settings() {
     // Health check
     App.health.check();
+    window.EnterpriseUI?.loadEnterpriseSettings();
 
     // Profile
     try {
@@ -912,12 +971,23 @@ const App = {
   sboms: {
     showUpload(projectId) {
       $('sbom-upload-form').style.display = 'block';
-      if (projectId) $('sbom-upload-form').dataset.projectId = projectId;
+      if (projectId && $('sbom-project-select')) $('sbom-project-select').value = projectId;
       App.router.go('sboms');
     },
     hideUpload() { $('sbom-upload-form').style.display = 'none'; },
 
-    async generate() {
+    loadFile(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        $('sbom-content').value = reader.result || '';
+        Toast.info(`Loaded ${file.name}`);
+      };
+      reader.readAsText(file);
+    },
+
+    async upload() {
       const termWrap = $('sbom-terminal-wrap');
       const term     = $('sbom-terminal');
       termWrap.style.display = 'block';
@@ -928,47 +998,70 @@ const App = {
         term.scrollTop = term.scrollHeight;
       };
 
-      const name   = $('sbom-name').value || 'my-app';
-      const format = $('sbom-format').value;
-      const source = $('sbom-source').value;
+      const projectId = $('sbom-project-select')?.value;
+      const sourceType = $('sbom-format')?.value || 'auto';
+      const version = $('sbom-name')?.value || '1.0.0';
+      const content = $('sbom-content')?.value?.trim();
 
-      log(`Initializing SBOM generation for: ${name}`, 'log-info');
-      await sleep(400);
-      log(`Format: ${format.toUpperCase()}`, 'log-dim');
-      if (source) { await sleep(300); log(`Source: ${source}`, 'log-dim'); }
-      await sleep(600);
-      log('Resolving dependency tree…', 'log-info');
-      await sleep(700);
-      const count = randInt(60, 200);
-      log(`Discovered ${count} components`, 'log-success');
-      await sleep(500);
-      log('Running vulnerability cross-reference against NVD…', 'log-info');
-      await sleep(900);
-      const vulnCount = randInt(2, 15);
-      log(`Found ${vulnCount} vulnerabilities in dependency tree`, vulnCount > 5 ? 'log-warn' : 'log-success');
-      await sleep(400);
-      log('Signing SBOM with platform key…', 'log-info');
-      await sleep(300);
-      log('Storing to database…', 'log-info');
-      await sleep(400);
+      if (!projectId) { Toast.error('Please create/select a project first.'); return; }
+      if (!content)   { Toast.error('Please paste or load an SBOM/lockfile.'); return; }
 
+      log(`Uploading ${sourceType} manifest to SecureChain parser…`, 'log-info');
       try {
-        const data = { name, format, component_count: count, source_url: source };
-        const projectId = $('sbom-upload-form').dataset.projectId;
-        if (projectId) data.project_id = projectId;
-        await API.createSbom(data);
-        log(`✓ SBOM "${name}" generated and stored successfully.`, 'log-success');
-        Toast.success('SBOM generated!');
-        await sleep(600);
+        const res = await API.uploadSbom({
+          project_id: projectId,
+          source_type: sourceType,
+          content,
+          version,
+          auto_scan: true,
+        });
+        const d = res.data;
+        log(`Parsed format: ${d.format} (${d.component_count} components)`, 'log-success');
+        log(`Vulnerabilities found: ${d.vulnerability_count} | Supply-chain threats: ${d.threat_count}`, d.vulnerability_count > 0 ? 'log-warn' : 'log-success');
+        log(`Risk Score: ${d.risk_score}/100`, 'log-info');
+        Toast.success(`SBOM uploaded (${d.component_count} components scanned)!`);
         ViewLoaders.sboms();
-        this.hideUpload();
       } catch (err) {
-        log(`[WARN] Backend store failed (${err.message}). Showing demo result.`, 'log-warn');
-        log(`✓ SBOM generation complete (demo mode).`, 'log-success');
-        Toast.warn('SBOM generated in demo mode — connect MySQL/XAMPP to persist data.');
-        await sleep(1000);
-        ViewLoaders.sboms();
+        log(`Upload failed: ${err.message}`, 'log-warn');
+        Toast.error('SBOM upload failed: ' + err.message);
       }
+    },
+
+    async checkCompleteness(sbomId) {
+      const out = $('sbom-inspect-output');
+      try {
+        const res = await API.sbomCompleteness(sbomId);
+        const d = res.data;
+        out.style.display = 'block';
+        out.innerHTML = `<div class="text-sm"><strong>CISA 2026 Completeness:</strong> <span class="badge badge-info">${d.completeness_score}% (Grade ${d.grade})</span> — ${d.recommendations?.join(' ') || 'All baseline fields present.'}</div>`;
+      } catch (e) { Toast.error(e.message); }
+    },
+
+    async runDiff() {
+      const baseId = $('diff-base-select')?.value;
+      const headId = $('diff-head-select')?.value;
+      if (!baseId || !headId) { Toast.warn('Select two SBOMs to compare.'); return; }
+      const out = $('sbom-inspect-output');
+      try {
+        const res = await API.diffSboms(baseId, headId);
+        const s = res.data.summary;
+        out.style.display = 'block';
+        out.innerHTML = `<div class="text-sm"><strong>SBOM Diff:</strong> <span class="text-emerald">+${s.added} added</span> · <span class="text-rose">-${s.removed} removed</span> · <span class="text-amber">~${s.changed} changed</span> · ${s.unchanged} unchanged</div>`;
+      } catch (e) { Toast.error(e.message); }
+    },
+
+    async exportDoc(sbomId, format) {
+      try {
+        const res = await API.exportSbom(sbomId, format);
+        const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sbom-${sbomId.slice(0, 8)}-${format}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        Toast.success(`Exported ${format.toUpperCase()} JSON`);
+      } catch (e) { Toast.error(e.message); }
     },
   },
 
@@ -985,13 +1078,26 @@ const App = {
   /* ── Threats ─────────────────────────────────── */
   threats: {
     async runScan() {
-      Toast.info('Running threat scan…');
+      Toast.info('Running supply-chain threat scan…');
       try {
-        await API.detectThreats({ sbom_ids: [] });
-      } catch {}
-      await sleep(1200);
+        const sboms = State.data.sboms.length ? State.data.sboms : (await API.listSboms())?.data ?? [];
+        for (const s of sboms) {
+          await API.detectThreats(s.id);
+        }
+        Toast.success('Threat scan complete!');
+      } catch (e) {
+        Toast.warn('Threat scan finished: ' + e.message);
+      }
       ViewLoaders.threats();
-      Toast.success('Threat scan complete!');
+    },
+
+    async triage(threatId, newStatus) {
+      try {
+        await API.triageThreat(threatId, newStatus);
+        Toast.success(`Threat marked as ${newStatus.replace('_', ' ')}`);
+      } catch (e) {
+        Toast.error('Triage update failed: ' + e.message);
+      }
     },
   },
 
